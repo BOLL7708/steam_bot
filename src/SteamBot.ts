@@ -10,7 +10,7 @@ export default class SteamBot {
 
     async start() {
         console.log('SteamBot started.')
-        const job = new CronJob('*/15 * * * *', async () => {
+        const job = new CronJob('*/30 * * * *', async () => {
             await this.postGames(await this.fetchGameIds())
         })
         job.start()
@@ -28,6 +28,9 @@ export default class SteamBot {
         }
     }
 
+    /**
+     * Fetches the IDs of the Steam games to post.
+     */
     private async fetchGameIds(): Promise<number[]> {
         this.ensureAPI()
         const response = await this._store.get(
@@ -47,26 +50,43 @@ export default class SteamBot {
         return ids
     }
 
-    private async fetchGameMeta(id: number): Promise<IGameMeta | undefined> {
-        this.ensureAPI()
-        const response = await this._store.get(
-            'api/appdetails', {
-                params: {
-                    appids: id
-                }
-            })
-        if (response.data) {
-            return response.data[id]?.data as IGameMeta
+    /**
+     * Posts the games to Discord.
+     * @param ids The IDs of the games to post.
+     */
+    private async postGames(ids: number[]) {
+        const config = await Config.get()
+        const metas = await this.fetchFilterAndSortGameMetas(ids)
+        if (metas.length > 0) {
+            for (const meta of metas) {
+                await new Promise(resolve => setTimeout(resolve, 30000)) // Post with some time delay as embeds can get skipped otherwise, seemingly.
+
+                let webhookUrl = SteamBot.isCoop(meta)
+                    ? config.webhookUrlCoop
+                    : SteamBot.isMulti(meta)
+                        ? config.webhookUrlMulti
+                        : config.webhookUrl
+
+                const webhook = new WebhookClient({url: webhookUrl})
+                const wasPosted = await this.postGame(meta, webhook)
+
+                let date = new Date()
+                date = new Date(date.getTime() + (date.getTimezoneOffset() * 60 * 1000))
+                const dateStr = date.toISOString().substring(0, 10)
+                if (wasPosted) await this._db.registerGameAsPosted(meta.steam_appid, dateStr)
+            }
         }
-        console.warn('Failed to get game meta for', id)
-        return undefined
     }
 
+    /**
+     * Fetches the game metas for the given IDs, filters out unreleased games and sorts them.
+     * @param ids
+     */
     private async fetchFilterAndSortGameMetas(ids: number[]): Promise<IGameMeta[]> {
         const metas: IGameMeta[] = []
         for (const id of ids) {
             const hasBeenPosted = await this._db.hasGameBeenPosted(id)
-            if(!hasBeenPosted) {
+            if (!hasBeenPosted) {
                 const meta = await this.fetchGameMeta(id)
                 if (meta) {
                     metas.push(meta)
@@ -90,25 +110,59 @@ export default class SteamBot {
         return metas.filter(filterReleased).sort(compareReleaseDatesOrNames)
     }
 
+    /**
+     * Fetches the game meta for the given ID.
+     */
+    private async fetchGameMeta(id: number): Promise<IGameMeta | undefined> {
+        this.ensureAPI()
+        const response = await this._store.get(
+            'api/appdetails', {
+                params: {
+                    appids: id
+                }
+            })
+        if (response.data) {
+            return response.data[id]?.data as IGameMeta
+        }
+        console.warn('Failed to get game meta for', id)
+        return undefined
+    }
+
+    /**
+     * Posts the game to Discord.
+     */
     private async postGame(meta: IGameMeta, webhook: WebhookClient): Promise<boolean> {
         // Contents
         const contents: string[] = [
-            `# 👉 [${meta.name}](<${SteamBot.getStoreURL(meta)}>) 👈`,
-            '```ansi',
-            `[1;36mDescription[0m: ${meta.short_description}`,
-            `[1;33mRelease Date[0m: ${SteamBot.getReleaseDate(meta)}`,
-            `[1;36mPrice[0m: ${SteamBot.getPrice(meta)}`,
-            `[1;33mGenres[0m: ${meta.genres?.map(genre => genre.description).join(', ')}`,
-            `[1;36mCategories[0m: ${meta.categories?.map(category => category.description).join(', ')}`,
-            `[1;33mDevelopers[0m: ${meta.developers?.join(', ')}`,
-            `[1;36mPublishers[0m: ${meta.publishers?.join(', ')}`,
-            '```',
+            `# [__${meta.name}__](<${SteamBot.getStoreURL(meta)}>)`,
+            '**Description**',
+            meta.short_description,
+            '',
+            '**Release Date**',
+            SteamBot.getReleaseDate(meta),
+            '**Price**',
+            SteamBot.getPrice(meta),
+            '',
+            '**Genres**',
+            meta.genres?.map(genre => genre.description).join(', '),
+            '**Categories**',
+            meta.categories?.map(category => category.description).join(', '),
+            '',
+            '**Developers**',
+            meta.developers?.join(', '),
+            '**Publishers**',
+            meta.publishers?.join(', '),
+            ''
         ]
 
-        // Embeds
-        let embedLinks = `👇 [banner](${meta.header_image})`
-        if (meta.screenshots?.length) {
-            embedLinks += `, [screenshot](${meta.screenshots[0].path_full})`
+        // Media
+        let embedLinks = `[Banner](${meta.header_image})`
+
+        const screenshotUrl = meta.screenshots
+            ? meta.screenshots[0].path_full
+            : undefined
+        if (screenshotUrl) {
+            embedLinks += `, [screenshot](${screenshotUrl})`
         }
         const trailerUrl = meta.movies
             ? meta.movies[0]?.mp4[480]
@@ -116,11 +170,15 @@ export default class SteamBot {
         if (trailerUrl) {
             embedLinks += `, [trailer](${trailerUrl})`
         }
+        contents.push(
+            '**Media**',
+            embedLinks
+        )
 
         // Send
         try {
             await webhook.send({
-                content: contents.join('\n\n') + `${embedLinks}`
+                content: contents.join('\n')
             })
             return true
         } catch (e) {
@@ -129,42 +187,22 @@ export default class SteamBot {
         return false
     }
 
-    private async postGames(ids: number[]) {
-        const metas = await this.fetchFilterAndSortGameMetas(ids)
-        if (metas.length > 0) {
-            for (const meta of metas) {
-                const config = await Config.get()
-                let webhookUrl = config.webhookUrl
-                if (SteamBot.isCoop(meta)) {
-                    webhookUrl = config.webhookUrlCoop
-                } else if (SteamBot.isMulti(meta)) {
-                    webhookUrl = config.webhookUrlMulti
-                }
-
-                const webhook = new WebhookClient({url: webhookUrl})
-                const wasPosted = await this.postGame(meta, webhook)
-                await new Promise(resolve => setTimeout(resolve, 1000)) // Post with some time delay as embeds are not added otherwise?!?!
-
-                const now = new Date()
-                if (wasPosted) await this._db.registerGameAsPosted(meta.steam_appid, now.toISOString())
-            }
-        }
-    }
-
+    // region Static Methods
     private static getStoreURL(meta: IGameMeta): string {
         return `https://store.steampowered.com/app/${meta.steam_appid}`
     }
 
     private static getReleaseDate(meta: IGameMeta): string {
         const date = new Date(meta.release_date.date)
-        const ymd = date.toISOString().split('T').shift()
+        const month = (100 + date.getMonth() + 1).toString().substring(1)
+        const day = (100 + date.getDate()).toString().substring(1)
+        const ymd = `${date.getFullYear()}-${month}-${day}`
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-        const day = days[date.getDay()]
-        return `${ymd} (a ${day})`
+        const weekday = days[date.getDay()]
+        return `${ymd} (a ${weekday})`
     }
 
     private static getPrice(meta: IGameMeta): string {
-        // TODO: Add original price in addition to the discount price.
         const currencies: { [x: string]: string } = {
             'EUR': '€',
             'USD': '$',
@@ -172,16 +210,19 @@ export default class SteamBot {
             'KRW': '₩'
         }
         const isFree: boolean = meta.is_free
-        const price: number = isFree ? 0 : meta.price_overview?.final ?? -1
+        const fullPrice: number = isFree ? 0 : meta.price_overview?.final ?? -1
+
         const currencyStr: string = isFree ? '' : meta.price_overview?.currency ?? ''
-        const discount: number = isFree ? 0 : meta.price_overview?.discount_percent ?? 0
         const currency: string = currencies[currencyStr] ?? currencyStr
-        const discountStr: string = discount > 0 ? ` (-${discount}%)` : ''
+
+        const discount: number = isFree ? 0 : meta.price_overview?.discount_percent ?? 0
+        const discountPrice = discount > 0 ? `, discounted at -${discount}% to ${currency}${(fullPrice / 100 * (1 - discount / 100)).toFixed(2)}` : ''
+
         return isFree
             ? 'Free'
-            : price < 0
+            : fullPrice < 0
                 ? 'No price'
-                : `${currency}${price / 100}${discountStr}`
+                : `${currency}${(fullPrice / 100).toFixed(2)} ${discountPrice}`
     }
 
     private static isCoop(meta: IGameMeta) {
@@ -200,8 +241,11 @@ export default class SteamBot {
         ]
         return meta.categories.filter(category => multiIds.includes(category.id)).length > 0
     }
+
+    // endregion
 }
 
+// region Interfaces
 interface IGameMeta {
     type: string
     name: string
@@ -328,3 +372,5 @@ interface IGameMetaContentDescriptors {
     ids: number[]
     notes: string
 }
+
+// endregion
