@@ -61,11 +61,14 @@ export default class SteamBot {
             for (const meta of metas) {
                 await new Promise(resolve => setTimeout(resolve, 30000)) // Post with some time delay as embeds can get skipped otherwise, seemingly.
 
-                let webhookUrl = SteamBot.isCoop(meta)
-                    ? config.webhookUrlCoop
-                    : SteamBot.isMulti(meta)
-                        ? config.webhookUrlMulti
-                        : config.webhookUrl
+                let webhookUrl =
+                    SteamBot.isDemo(meta)
+                        ? config.webhookUrlDemo
+                        : SteamBot.isCoop(meta)
+                            ? config.webhookUrlCoop
+                            : SteamBot.isMulti(meta)
+                                ? config.webhookUrlMulti
+                                : config.webhookUrl
 
                 const webhook = new WebhookClient({url: webhookUrl})
                 const wasPosted = await this.postGame(meta, webhook)
@@ -133,10 +136,16 @@ export default class SteamBot {
      */
     private async postGame(meta: IGameMeta, webhook: WebhookClient): Promise<boolean> {
         // Contents
+        const description = meta.short_description ?? ''
+        const genres = meta.genres?.map(genre => genre.description).join(', ') ?? ''
+        const categories = meta.categories?.map(category => category.description).join(', ') ?? ''
+        const developers = meta.developers?.join(', ') ?? ''
+        const publishers = meta.publishers?.join(', ') ?? ''
+
         const contents: string[] = [
             `# [__${meta.name}__](<${SteamBot.getStoreURL(meta)}>)`,
             '**Description**',
-            meta.short_description,
+            description.trim() ? description : 'N/A',
             '',
             '**Release Date**',
             SteamBot.getReleaseDate(meta),
@@ -144,14 +153,14 @@ export default class SteamBot {
             SteamBot.getPrice(meta),
             '',
             '**Genres**',
-            meta.genres?.map(genre => genre.description).join(', '),
+            genres.trim().length ? genres : 'N/A',
             '**Categories**',
-            meta.categories?.map(category => category.description).join(', '),
+            categories.trim().length ? categories : 'N/A',
             '',
             '**Developers**',
-            meta.developers?.join(', '),
+            developers.trim().length ? developers : 'N/A',
             '**Publishers**',
-            meta.publishers?.join(', '),
+            publishers.trim().length ? publishers : 'N/A',
             ''
         ]
 
@@ -225,7 +234,7 @@ export default class SteamBot {
                 : `${currency}${(fullPrice / 100).toFixed(2)} ${discountPrice}`
     }
 
-    private static isCoop(meta: IGameMeta) {
+    private static isCoop(meta: IGameMeta): boolean {
         const coopIds = [
             9, // Co-op
             38, // Online Co-op
@@ -233,13 +242,17 @@ export default class SteamBot {
         return meta.categories.filter(category => coopIds.includes(category.id)).length > 0
     }
 
-    private static isMulti(meta: IGameMeta) {
+    private static isMulti(meta: IGameMeta): boolean {
         const multiIds = [
             1, // Multi-Player
             36, // Online PvP
             49, // PvP
         ]
         return meta.categories.filter(category => multiIds.includes(category.id)).length > 0
+    }
+
+    private static isDemo(meta: IGameMeta): boolean {
+        return meta.type.toLowerCase() == 'demo'
     }
 
     // endregion

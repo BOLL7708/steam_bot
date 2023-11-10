@@ -26,4 +26,5 @@ export interface IConfig {
     webhookUrlCoop: string
     webhookUrlMulti: string
     webhookUrl: string
+    webhookUrlDemo: string
 }
