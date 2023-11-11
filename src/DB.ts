@@ -26,11 +26,9 @@ export default class DB {
                 filename: `${this._dir}/steam_bot.db`,
                 driver: sqlite3.Database
             })
-
-            this._db.on('trace', (data) => {
-                console.log('SQL Trace:', data)
-            })
-
+            // this._db.on('trace', (data) => {
+            //     console.log('SQL Trace:', data)
+            // })
         }
         return this._db
     }

@@ -68,7 +68,7 @@ export default class SteamBot {
                             ? config.webhookUrlCoop
                             : SteamBot.isMulti(meta)
                                 ? config.webhookUrlMulti
-                                : config.webhookUrl
+                                : config.webhookUrlSolo
 
                 const webhook = new WebhookClient({url: webhookUrl})
                 const wasPosted = await this.postGame(meta, webhook)

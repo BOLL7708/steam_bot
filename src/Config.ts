@@ -25,6 +25,6 @@ export default class Config {
 export interface IConfig {
     webhookUrlCoop: string
     webhookUrlMulti: string
-    webhookUrl: string
+    webhookUrlSolo: string
     webhookUrlDemo: string
 }
