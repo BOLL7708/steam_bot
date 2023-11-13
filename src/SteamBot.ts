@@ -28,6 +28,12 @@ export default class SteamBot {
         }
     }
 
+    private getDate(short: boolean): string {
+        let date = new Date()
+        date = new Date(date.getTime() - (date.getTimezoneOffset() * 60 * 1000))
+        return short ? date.toISOString().substring(0, 10) : date.toISOString().replace('T', ' ').substring(0, 19)
+    }
+
     /**
      * Fetches the IDs of the Steam games to post.
      */
@@ -46,7 +52,7 @@ export default class SteamBot {
             const matches = html.matchAll(/data-ds-appid="(\d+?)"/gim)
             ids = [...matches].map(match => Number(match[1]))
         }
-        console.log('Fetched', ids.length, 'game(s)')
+        console.log(this.getDate(false), 'Fetched', ids.length, 'game(s)')
         return ids
     }
 
@@ -60,23 +66,24 @@ export default class SteamBot {
         if (metas.length > 0) {
             for (const meta of metas) {
                 await new Promise(resolve => setTimeout(resolve, 30000)) // Post with some time delay as embeds can get skipped otherwise, seemingly.
-
+                const isDemo = SteamBot.isDemo(meta)
+                const isCoop = SteamBot.isCoop(meta)
+                const isMulti = SteamBot.isMulti(meta)
                 let webhookUrl =
-                    SteamBot.isDemo(meta)
+                    isDemo
                         ? config.webhookUrlDemo
-                        : SteamBot.isCoop(meta)
+                        : isCoop
                             ? config.webhookUrlCoop
-                            : SteamBot.isMulti(meta)
+                            : isMulti
                                 ? config.webhookUrlMulti
                                 : config.webhookUrlSolo
-
                 const webhook = new WebhookClient({url: webhookUrl})
                 const wasPosted = await this.postGame(meta, webhook)
-
-                let date = new Date()
-                date = new Date(date.getTime() + (date.getTimezoneOffset() * 60 * 1000))
-                const dateStr = date.toISOString().substring(0, 10)
-                if (wasPosted) await this._db.registerGameAsPosted(meta.steam_appid, dateStr)
+                if (wasPosted) {
+                    const type = isDemo ? 'demo' : isCoop ? 'coop' : isMulti ? 'multi' : 'solo'
+                    console.log(this.getDate(false), `Posted ${type} game`, meta.steam_appid, meta.name)
+                    await this._db.registerGameAsPosted(meta.steam_appid, this.getDate(true))
+                }
             }
         }
     }
