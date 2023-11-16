@@ -39,20 +39,25 @@ export default class SteamBot {
      */
     private async fetchGameIds(): Promise<number[]> {
         this.ensureAPI()
-        const response = await this._store.get(
-            'search', {
-                params: {
-                    sort_by: 'Released_DESC',
-                    vrsupport: 402 // VR Supported
-                }
-            })
         let ids: number[] = []
-        if (response.data) {
-            const html: string = response.data
-            const matches = html.matchAll(/data-ds-appid="(\d+?)"/gim)
-            ids = [...matches].map(match => Number(match[1]))
+        try {
+            const response = await this._store.get(
+                'search', {
+                    params: {
+                        sort_by: 'Released_DESC',
+                        vrsupport: 402 // VR Supported
+                    }
+                })
+            
+            if (response.data) {
+                const html: string = response.data
+                const matches = html.matchAll(/data-ds-appid="(\d+?)"/gim)
+                ids = [...matches].map(match => Number(match[1]))
+            }
+            console.log(this.getDate(false), 'Fetched', ids.length, 'game(s)')
+        } catch (e) {
+            console.error('Failed to fetch games', e.message)
         }
-        console.log(this.getDate(false), 'Fetched', ids.length, 'game(s)')
         return ids
     }
 
@@ -125,16 +130,20 @@ export default class SteamBot {
      */
     private async fetchGameMeta(id: number): Promise<IGameMeta | undefined> {
         this.ensureAPI()
-        const response = await this._store.get(
-            'api/appdetails', {
-                params: {
-                    appids: id
-                }
-            })
-        if (response.data) {
-            return response.data[id]?.data as IGameMeta
+        try {
+            const response = await this._store.get(
+                'api/appdetails', {
+                    params: {
+                        appids: id
+                    }
+                })
+            if (response.data) {
+                return response.data[id]?.data as IGameMeta
+            }
+            console.warn('Unable to get game meta for', id)
+        } catch(e) {
+            console.error('Failed to get game meta for', id, e.message)
         }
-        console.warn('Failed to get game meta for', id)
         return undefined
     }
 
