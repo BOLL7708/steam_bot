@@ -23,6 +23,7 @@ export default class Config {
  * The configuration stored on file as config.json or config.local.json.
  */
 export interface IConfig {
+    postThreads: boolean
     webhookUrlCoop: string
     webhookUrlMulti: string
     webhookUrlSolo: string

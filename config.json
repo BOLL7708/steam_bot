@@ -1,4 +1,5 @@
 {
+  "postThreads": false,
   "webhookUrlCoop": "",
   "webhookUrlMulti": "",
   "webhookUrlSolo": "",

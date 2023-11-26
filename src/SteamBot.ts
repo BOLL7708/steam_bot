@@ -1,6 +1,6 @@
 import {CronJob} from 'cron'
 import axios, {AxiosInstance} from 'axios'
-import {WebhookClient} from 'discord.js'
+import {WebhookClient, WebhookMessageCreateOptions} from 'discord.js'
 import DB from './DB.js'
 import Config from './Config.js'
 
@@ -151,6 +151,8 @@ export default class SteamBot {
      * Posts the game to Discord.
      */
     private async postGame(meta: IGameMeta, webhook: WebhookClient): Promise<boolean> {
+        const config = await Config.get()
+
         // Contents
         const description = meta.short_description ?? ''
         const genres = meta.genres?.map(genre => genre.description).join(', ') ?? ''
@@ -182,29 +184,68 @@ export default class SteamBot {
 
         // Media
         let embedLinks = `[Banner](${meta.header_image})`
+        let files = []
+        let trailerLinks = ''
+        if(!config.postThreads) { // Links that embed images in the original message
+            const screenshotUrl = meta.screenshots
+                ? meta.screenshots[0].path_full
+                : undefined
+            if (screenshotUrl) {
+                embedLinks += `, [screenshot](${screenshotUrl})`
+            }
+            const trailerUrl = meta.movies
+                ? meta.movies[0]?.mp4[480]
+                : undefined
+            if (trailerUrl) {
+                embedLinks += `, [trailer](${trailerUrl})`
+            }
+        } else { // Additional messages posted in the thread
+            // Screenshots
+            const screenshotUrls = meta.screenshots
+                ? meta.screenshots.map(screenshot => screenshot.path_full)
+                : []
 
-        const screenshotUrl = meta.screenshots
-            ? meta.screenshots[0].path_full
-            : undefined
-        if (screenshotUrl) {
-            embedLinks += `, [screenshot](${screenshotUrl})`
-        }
-        const trailerUrl = meta.movies
-            ? meta.movies[0]?.mp4[480]
-            : undefined
-        if (trailerUrl) {
-            embedLinks += `, [trailer](${trailerUrl})`
+            files = screenshotUrls.slice(0,10).map((url, index) => {
+                return {
+                    name: `screenshot_${index}.png`,
+                    attachment: url
+                }
+            })
+            // Trailers
+            const trailerUrls = meta.movies
+                ? meta.movies.map(movie => movie.mp4[480])
+                : []
+            trailerLinks = trailerUrls.map((url, index) => `[${index+1}](${url})`).join(', ')
         }
         contents.push(
             '**Media**',
             embedLinks
         )
+        const options: WebhookMessageCreateOptions = {
+            content: contents.join('\n'),
+        }
+        if(config.postThreads) {
+            options.threadName = meta.name
+        }
 
         // Send
         try {
-            await webhook.send({
-                content: contents.join('\n')
-            })
+            const response = await webhook.send(options)
+            if (response.id) {
+                if(files.length) {
+                    await webhook.send({
+                        threadId: response.id,
+                        content: 'Screenshots',
+                        files
+                    })
+                }
+                if(trailerLinks) {
+                    await webhook.send({
+                        threadId: response.id,
+                        content: `Trailers: ${trailerLinks}`
+                    })
+                }
+            }
             return true
         } catch (e) {
             console.error('Failed to send game', meta.steam_appid, meta.name, e.message)
