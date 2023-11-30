@@ -10,5 +10,8 @@
     "discord.js": "^14.13.0",
     "sqlite": "^5.0.1",
     "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.1"
   }
 }
