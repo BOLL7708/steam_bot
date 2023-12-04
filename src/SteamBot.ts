@@ -10,7 +10,8 @@ export default class SteamBot {
 
     async start() {
         console.log('SteamBot started.')
-        const job = new CronJob('*/30 * * * *', async () => {
+        await this.postGames(await this.fetchGameIds()) // Always run once on boot
+        const job = new CronJob('*/30 * * * *', async () => { // Then every 30 minutes
             await this.postGames(await this.fetchGameIds())
         })
         job.start()
