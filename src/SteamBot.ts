@@ -160,6 +160,9 @@ export default class SteamBot {
         const categories = meta.categories?.map(category => category.description).join(', ') ?? ''
         const developers = meta.developers?.join(', ') ?? ''
         const publishers = meta.publishers?.join(', ') ?? ''
+        const vrSupportMatches = (meta.pc_requirements?.minimum ?? meta.pc_requirements?.recommended ?? '').matchAll(/<strong>VR Support:<\/strong>\s?(.*?)\s?<\/li>/gmi)
+        const vrSupportMatch = [...vrSupportMatches][0]
+        const vrSupport = vrSupportMatch?.[1].replaceAll(/<br>/gmi, ' ') ?? '' // Replace <br> with space as some descriptions have multiple lines.
 
         const contents: string[] = [
             `# [__${meta.name}__](<${SteamBot.getStoreURL(meta)}>)`,
@@ -175,6 +178,8 @@ export default class SteamBot {
             genres.trim().length ? genres : 'N/A',
             '**Categories**',
             categories.trim().length ? categories : 'N/A',
+            '**VR Support**',
+            vrSupport.trim().length ? vrSupport : 'N/A',
             '',
             '**Developers**',
             developers.trim().length ? developers : 'N/A',
